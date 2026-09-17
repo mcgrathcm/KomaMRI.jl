@@ -4,6 +4,36 @@ function remap_magnetization!(M::Mag, source)
     return nothing
 end
 
+# Global particle index each particle takes its magnetization from at a cycle boundary.
+function cycle_remap_sources(obj, motion)
+    affected = KomaMRIBase.get_indexing_range(KomaMRIBase.expand(motion.spins, length(obj)))
+    source = collect(eachindex(obj.ρ))
+    source[affected] .= affected[motion.action.cycle_map]
+    return source
+end
+
+# Cycle boundaries are motion key times, so discretize always samples them. The grid
+# value can differ from a freshly computed boundary by a few ulp, since it round-trips
+# through a per-block time offset.
+function cycle_remap_break_indices(seqd, motion)
+    breaks = Int[]
+    tol = KomaMRIBase.MAX_STEP_TIME_SNAP_TOL
+    for t in KomaMRIBase.cycle_remap_times(motion, last(seqd.t))
+        t < last(seqd.t) || continue
+        i = searchsortedlast(seqd.t, t + tol)
+        i >= firstindex(seqd.t) && abs(seqd.t[i] - t) <= tol ||
+            error("No sampling time within $tol of cycle boundary $t; motion key times are missing from the simulation grid.")
+        push!(breaks, i)
+    end
+    return breaks
+end
+
+function remap_magnetization!(M::Mag, source)
+    M.xy .= M.xy[source]
+    M.z  .= M.z[source]
+    return nothing
+end
+
 outflow_spin_reset_at!(spin_state, t, i, motion; replace_by=0) =
    outflow_spin_reset!(spin_state, t[i, :], motion; replace_by)
 outflow_spin_reset_at!(spin_state, t, i, ::NoMotion; replace_by=0) = nothing
